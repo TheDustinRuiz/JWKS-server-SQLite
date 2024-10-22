@@ -1,14 +1,25 @@
+"""
+This module implements a simple HTTP server that handles authentication 
+requests, generates JWT tokens, and provides a JWKS (JSON Web Key Set) 
+for token verification.
+"""
+
+# Standard library imports
+import base64
+import datetime
+import json
+from urllib.parse import urlparse, parse_qs
+
+# HTTP server imports
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# Third-party imports
+import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from urllib.parse import urlparse, parse_qs
-import base64
-import json
-import jwt
-import datetime
 
-hostName = "localhost"
-serverPort = 8080
+HOST_NAME = "localhost"
+SERVER_PORT = 8080
 
 private_key = rsa.generate_private_key(
     public_exponent=65537,
@@ -43,29 +54,35 @@ def int_to_base64(value):
     encoded = base64.urlsafe_b64encode(value_bytes).rstrip(b'=')
     return encoded.decode('utf-8')
 
-
+# pylint: disable=invalid-name
 class MyServer(BaseHTTPRequestHandler):
+    """HTTP server to handle authentication requests and provide JWKS."""
     def do_PUT(self):
+        """Handle HTTP PUT requests (not allowed)."""
         self.send_response(405)
         self.end_headers()
         return
 
     def do_PATCH(self):
+        """Handle HTTP PATCH requests (not allowed)."""
         self.send_response(405)
         self.end_headers()
         return
 
     def do_DELETE(self):
+        """Handle HTTP DELETE requests (not allowed)."""
         self.send_response(405)
         self.end_headers()
         return
 
     def do_HEAD(self):
+        """Handle HTTP HEAD requests (not allowed)."""
         self.send_response(405)
         self.end_headers()
         return
 
     def do_POST(self):
+        """Handle HTTP POST requests for token generation."""
         parsed_path = urlparse(self.path)
         params = parse_qs(parsed_path.query)
         if parsed_path.path == "/auth":
@@ -90,6 +107,7 @@ class MyServer(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
+        """Handle HTTP GET requests for JWKS retrieval."""
         if self.path == "/.well-known/jwks.json":
             self.send_response(200)
             self.send_header("Content-type", "application/json")
@@ -115,7 +133,7 @@ class MyServer(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    webServer = HTTPServer((hostName, serverPort), MyServer)
+    webServer = HTTPServer((HOST_NAME, SERVER_PORT), MyServer)
     try:
         webServer.serve_forever()
     except KeyboardInterrupt:
