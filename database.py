@@ -11,7 +11,6 @@ def init_db():
     """Initialize the database"""
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM keys")
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS keys(
             kid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,6 +18,7 @@ def init_db():
             exp INTEGER NOT NULL
         )
     """)
+    cursor.execute("DELETE FROM keys")
     conn.commit()
     conn.close()
 
@@ -54,14 +54,3 @@ def get_key(expired=False):
     else:
         print("No key found in the database.")
         return None
-
-def get_all_valid_keys():
-    """Retrieve all valid private keys from the database"""
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key FROM keys WHERE exp > ?",
-        (int(datetime.now(tz=timezone.utc).timestamp()),))
-    keys_data = cursor.fetchall()
-    conn.close()
-
-    return keys_data
