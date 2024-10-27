@@ -65,25 +65,21 @@ class MyServer(BaseHTTPRequestHandler):
         """Handle HTTP PUT requests (not allowed)."""
         self.send_response(405)
         self.end_headers()
-        return
 
     def do_PATCH(self):
         """Handle HTTP PATCH requests (not allowed)."""
         self.send_response(405)
         self.end_headers()
-        return
 
     def do_DELETE(self):
         """Handle HTTP DELETE requests (not allowed)."""
         self.send_response(405)
         self.end_headers()
-        return
 
     def do_HEAD(self):
         """Handle HTTP HEAD requests (not allowed)."""
         self.send_response(405)
         self.end_headers()
-        return
 
     def do_POST(self):
         """Handle HTTP POST requests for token generation."""

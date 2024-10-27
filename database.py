@@ -51,6 +51,4 @@ def get_key(expired=False):
         )
         print("Key found in the database.")
         return key
-    else:
-        print("No key found in the database.")
-        return None
+    return None
