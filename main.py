@@ -9,6 +9,8 @@ import base64
 import datetime
 import json
 from urllib.parse import urlparse, parse_qs
+import sqlite3
+from datetime import datetime, timezone, timedelta
 
 # HTTP server imports
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -17,6 +19,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+
+from database import init_db, save_key, get_key
 
 HOST_NAME = "localhost"
 SERVER_PORT = 8080
@@ -91,12 +95,14 @@ class MyServer(BaseHTTPRequestHandler):
             }
             token_payload = {
                 "user": "username",
-                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+                "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp())
             }
             if 'expired' in params:
                 headers["kid"] = "expiredKID"
-                token_payload["exp"] = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
-            encoded_jwt = jwt.encode(token_payload, pem, algorithm="RS256", headers=headers)
+                token_payload["exp"] = int((datetime.now(timezone.utc)
+                                            - timedelta(hours=1)).timestamp())
+            encoded_jwt = jwt.encode(token_payload, get_key(), algorithm="RS256", headers=headers)
+
             self.send_response(200)
             self.end_headers()
             self.wfile.write(bytes(encoded_jwt, "utf-8"))
@@ -133,6 +139,12 @@ class MyServer(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    init_db()
+    try:
+        save_key(pem, int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp()))
+        save_key(expired_pem, int((datetime.now(timezone.utc) - timedelta(hours=2)).timestamp()))
+    except sqlite3.OperationalError as e:
+        print("Error saving key:", e)
     webServer = HTTPServer((HOST_NAME, SERVER_PORT), MyServer)
     try:
         webServer.serve_forever()
