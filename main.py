@@ -1,5 +1,5 @@
 """
-This module implements a simple HTTP server that handles authentication 
+This module implements a simple HTTP server that handles registration and authentication 
 requests, generates JWT tokens, and provides a JWKS (JSON Web Key Set) 
 for token verification.
 """
@@ -8,6 +8,7 @@ for token verification.
 import base64
 import datetime
 import json
+import uuid
 from urllib.parse import urlparse, parse_qs
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -19,11 +20,13 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from argon2 import PasswordHasher
 
-from database import init_db, save_key, get_key
+from database import init_db, save_key, get_key, save_user, log_auth_request
 
 HOST_NAME = "localhost"
 SERVER_PORT = 8080
+DATABASE_FILE = "totally_not_my_privateKeys.db"
 
 private_key = rsa.generate_private_key(
     public_exponent=65537,
@@ -61,6 +64,45 @@ def int_to_base64(value):
 # pylint: disable=invalid-name
 class MyServer(BaseHTTPRequestHandler):
     """HTTP server to handle authentication requests and provide JWKS."""
+    def __init__(self, *args, **kwargs):
+        self.ph = PasswordHasher()
+        super().__init__(*args, **kwargs)
+
+    def handle_register(self):
+        """Handle user registration."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            username = data.get("username")
+            email = data.get("email")
+
+            if not username or not email:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing username or email in request body.")
+                return
+
+
+            password = str(uuid.uuid4())
+            password_hash = self.ph.hash(password)
+            save_user(username, email, password_hash)
+
+            self.send_response(201)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            response = {"password": password}
+            self.wfile.write(bytes(json.dumps(response), "utf-8"))
+
+        except json.JSONDecodeError:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"Invalid JSON format.")
+        except sqlite3.IntegrityError:
+            self.send_response(409)
+            self.end_headers()
+            self.wfile.write(b"Username or email already exists.")
+
     def do_PUT(self):
         """Handle HTTP PUT requests (not allowed)."""
         self.send_response(405)
@@ -82,31 +124,78 @@ class MyServer(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        """Handle HTTP POST requests for token generation."""
+        """Handle HTTP POST requests for registration and authentication."""
         parsed_path = urlparse(self.path)
         params = parse_qs(parsed_path.query)
-        if parsed_path.path == "/auth":
-            headers = {
-                "kid": "goodKID"
-            }
-            token_payload = {
-                "user": "username",
-                "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp())
-            }
-            if 'expired' in params:
-                headers["kid"] = "expiredKID"
-                token_payload["exp"] = int((datetime.now(timezone.utc)
-                                            - timedelta(hours=1)).timestamp())
-            encoded_jwt = jwt.encode(token_payload, get_key(), algorithm="RS256", headers=headers)
+        if parsed_path.path == "/register":
+            self.handle_register()
+            return
+        elif parsed_path.path == "/auth":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
 
-            self.send_response(200)
+            try:
+                data = json.loads(body)
+                username = data.get("username")
+                password = data.get("password")
+
+                if not username or not password:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"Missing username or password in request body.")
+                    return
+
+                user_id = self.get_user_id_by_username(username)
+
+                if not user_id:
+                    self.send_response(401)
+                    self.end_headers()
+                    self.wfile.write(b"Invalid username or password.")
+                    return
+
+                headers = {
+                    "kid": "goodKID"
+                }
+                token_payload = {
+                    "user": "username",
+                    "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp())
+                }
+                if 'expired' in params:
+                    headers["kid"] = "expiredKID"
+                    token_payload["exp"] = int((datetime.now(timezone.utc)
+                                                - timedelta(hours=1)).timestamp())
+                encoded_jwt = jwt.encode(token_payload, get_key(),
+                                         algorithm="RS256", headers=headers)
+
+                request_ip = self.client_address[0]
+                log_auth_request(request_ip, user_id)
+
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(bytes(encoded_jwt, "utf-8"))
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON format.")
+
+            return
+        else:
+            self.send_response(405)
             self.end_headers()
-            self.wfile.write(bytes(encoded_jwt, "utf-8"))
             return
 
-        self.send_response(405)
-        self.end_headers()
-        return
+    def get_user_id_by_username(self, username):
+        """Fetch the user ID from the database based on the username."""
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+        result = cursor.fetchone()
+        conn.close()
+
+        if result:
+            return result[0]
+        else:
+            return None
 
     def do_GET(self):
         """Handle HTTP GET requests for JWKS retrieval."""
