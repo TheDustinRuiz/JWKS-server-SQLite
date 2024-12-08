@@ -7,6 +7,8 @@ for token verification.
 # Standard library imports
 import base64
 import datetime
+from collections import defaultdict
+import time
 import json
 import uuid
 from urllib.parse import urlparse, parse_qs
@@ -60,6 +62,28 @@ def int_to_base64(value):
     value_bytes = bytes.fromhex(value_hex)
     encoded = base64.urlsafe_b64encode(value_bytes).rstrip(b'=')
     return encoded.decode('utf-8')
+
+class RateLimiter:
+    """Rate limiter implementation"""
+    def __init__(self, max_requests, window_seconds):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = defaultdict(list)
+
+    def is_allowed(self, ip_address):
+        """Check if the IP address is allowed to make a request."""
+        current_time = time.time()
+        if ip_address not in self.requests:
+            self.requests[ip_address] = []
+        self.requests[ip_address] = [
+            t for t in self.requests[ip_address] if current_time - t <= self.window_seconds
+        ]
+        if len(self.requests[ip_address]) < self.max_requests:
+            self.requests[ip_address].append(current_time)
+            return True
+        return False
+
+rate_limiter = RateLimiter(max_requests=10, window_seconds=1)
 
 # pylint: disable=invalid-name
 class MyServer(BaseHTTPRequestHandler):
@@ -131,6 +155,12 @@ class MyServer(BaseHTTPRequestHandler):
             self.handle_register()
             return
         elif parsed_path.path == "/auth":
+            client_ip = self.client_address[0]
+            if not rate_limiter.is_allowed(client_ip):
+                self.send_response(429)
+                self.end_headers()
+                self.wfile.write(b"Too Many Requests")
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
 
