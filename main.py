@@ -83,6 +83,10 @@ class RateLimiter:
             return True
         return False
 
+    def reset(self):
+        """Reset the rate limiter."""
+        self.requests.clear()
+
 rate_limiter = RateLimiter(max_requests=10, window_seconds=1)
 
 # pylint: disable=invalid-name
@@ -154,7 +158,7 @@ class MyServer(BaseHTTPRequestHandler):
         if parsed_path.path == "/register":
             self.handle_register()
             return
-        elif parsed_path.path == "/auth":
+        if parsed_path.path == "/auth":
             client_ip = self.client_address[0]
             if not rate_limiter.is_allowed(client_ip):
                 self.send_response(429)
@@ -209,10 +213,9 @@ class MyServer(BaseHTTPRequestHandler):
                 self.wfile.write(b"Invalid JSON format.")
 
             return
-        else:
-            self.send_response(405)
-            self.end_headers()
-            return
+        self.send_response(405)
+        self.end_headers()
+        return
 
     def get_user_id_by_username(self, username):
         """Fetch the user ID from the database based on the username."""
@@ -224,8 +227,7 @@ class MyServer(BaseHTTPRequestHandler):
 
         if result:
             return result[0]
-        else:
-            return None
+        return None
 
     def do_GET(self):
         """Handle HTTP GET requests for JWKS retrieval."""
